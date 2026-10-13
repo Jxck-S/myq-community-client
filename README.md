@@ -5,7 +5,7 @@
 <p align="center">
   <a href="#installation"><img src="https://img.shields.io/badge/python-3.9%2B-blue.svg" alt="Python 3.9+"></a>
   <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="MIT License">
-  <img src="https://img.shields.io/badge/tests-17%20passing-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-21%20passing-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/status-verified%20live-success.svg" alt="Verified live">
 </p>
 
@@ -122,7 +122,7 @@ Endpoints, auth flow, hosts, and request / response shapes are documented in
 ## Development
 
 ```bash
-python -m pytest tests/        # 17 offline unit tests — no account needed
+python -m pytest tests/        # 21 offline unit tests — no account needed
 ```
 
 Covers PKCE, login-form parsing, MFA detection, model parsing, unlock routing /

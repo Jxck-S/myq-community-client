@@ -33,9 +33,8 @@ MYQ_APPLICATION_ID = "a3RcS5IyIDju7PGpjNOJ6N2lw7TDHA6ecUNAMMvnUtLIY75iGnbOSBWw53
 # Service hosts (production).
 #
 # The app uses a microservice backend; each endpoint group lives on its own
-# host. The mapping of path-prefix -> host below is inferred from the host key
-# names and endpoint prefixes and is verified at runtime (the client falls back
-# to the accounts host on a 404). Override any of these via MyQCommunity(hosts=).
+# host. Override any of these via MyQCommunity(hosts=). The "identity" entry is
+# informational; pass identity_host= to the constructors to change auth.
 # ---------------------------------------------------------------------------
 IDENTITY_HOST = "https://id.myq.com"
 
@@ -56,9 +55,9 @@ HOSTS = {
     "push_notifications": "https://myqb-notifications.myq-cloud.com",
 }
 
-# Which service host serves which endpoint group used by this library.
-# Communities list + profile live on the accounts/facilities host; all
-# device + door + unit-action endpoints live on the devices host.
+# Endpoint groups used by this library: communities -> "facilities", device
+# list + device actions -> "devices", door/gate unlock -> "panels",
+# access history -> "history".
 API_VERSION = "api/v6"
 
 USER_AGENT = f"myq-community-client/{APP_VERSION}"

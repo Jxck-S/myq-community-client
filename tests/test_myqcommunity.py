@@ -201,3 +201,52 @@ def test_history_cursor_pagination():
     ev = c.history("acct", limit=None)
     assert [e.id for e in ev] == ["1", "2"]
     assert seen == [("history", None), ("history", "CUR")]   # followed the cursor
+
+
+def test_form_action_attribute_order():
+    page = '<form method="post" class="x" action="/Account/Login?a=1&amp;b=2">'
+    assert _form_action(page) == "/Account/Login?a=1&b=2"
+
+
+def _json_resp(payload):
+    class R:
+        status_code = 200
+        def json(self_): return payload
+    return R()
+
+
+def test_communities_bare_list_response():
+    c = _client()
+    c._request = lambda *a, **kw: _json_resp([{"id": "C1", "name": "A"}])
+    assert [x.id for x in c.communities()] == ["C1"]
+
+
+def test_devices_page_pagination():
+    c = _client(); seen = []
+    pages = [
+        {"items": [{"serial_number": "A"}], "metadata": {"total_pages": 2}},
+        {"items": [{"serial_number": "B"}], "metadata": {"total_pages": 2}},
+    ]
+    def fake(method, host, path, params=None, **kw):
+        seen.append(params)
+        return _json_resp(pages[len(seen) - 1])
+    c._request = fake
+    assert [d.serial_number for d in c.devices("acct")] == ["A", "B"]
+    assert seen == [None, {"page": 2}]
+
+
+def test_request_refreshes_and_persists_on_401():
+    import httpx
+    import respx
+
+    saved = []
+    tok = Token(access_token="old", refresh_token="r1", expires_at=time.time() + 9999)
+    c = MyQCommunity(tok, on_token_refresh=saved.append)
+    with respx.mock:
+        respx.post(f"{const.IDENTITY_HOST}/connect/token").respond(
+            200, json={"access_token": "new", "refresh_token": "r2", "expires_in": 3600})
+        route = respx.get(f"{const.HOSTS['facilities']}/{const.API_VERSION}/communities")
+        route.side_effect = [httpx.Response(401), httpx.Response(200, json={"items": []})]
+        assert c.communities() == []
+    assert route.calls[1].request.headers["Authorization"] == "Bearer new"
+    assert [t.refresh_token for t in saved] == ["r2"]   # rotated token persisted

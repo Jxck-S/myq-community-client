@@ -20,7 +20,9 @@ TOKEN_FILE = os.path.expanduser("~/.myqcommunity_token.json")
 
 
 def save_token(tok) -> None:
-    with open(TOKEN_FILE, "w") as f:
+    # Owner-only permissions: the refresh token grants full account access.
+    fd = os.open(TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
         json.dump(
             {"access_token": tok.access_token, "refresh_token": tok.refresh_token,
              "expires_at": tok.expires_at}, f,
@@ -35,7 +37,8 @@ def otp_prompt(challenge) -> str:
 def connect() -> MyQCommunity:
     # Reuse a stored refresh token when we have one (fully headless).
     if os.path.exists(TOKEN_FILE):
-        rt = json.load(open(TOKEN_FILE)).get("refresh_token")
+        with open(TOKEN_FILE) as f:
+            rt = json.load(f).get("refresh_token")
         if rt:
             try:
                 return MyQCommunity.from_refresh_token(rt, on_token_refresh=save_token)
@@ -48,20 +51,19 @@ def connect() -> MyQCommunity:
 
 
 def main() -> None:
-    myq = connect()
-    print("Logged in.\n")
-    for comm in myq.communities():
-        print(f"Community: {comm.name}  ({comm.id})")
-        locks = myq.locks(comm.id)
-        for i, d in enumerate(locks):
-            print(f"  [{i}] {d.name}  {d.serial_number}  online={d.online}")
-        if locks:
-            choice = input("  Unlock which # (enter to skip)? ").strip()
-            if choice.isdigit() and int(choice) < len(locks):
-                d = locks[int(choice)]
-                ok = myq.unlock(comm.id, d.serial_number)
-                print(f"  {'unlocked' if ok else 'failed'}: {d.name}")
-    myq.close()
+    with connect() as myq:
+        print("Logged in.\n")
+        for comm in myq.communities():
+            print(f"Community: {comm.name}  ({comm.id})")
+            locks = myq.locks(comm.id)
+            for i, d in enumerate(locks):
+                print(f"  [{i}] {d.name}  {d.serial_number}  online={d.online}")
+            if locks:
+                choice = input("  Unlock which # (enter to skip)? ").strip()
+                if choice.isdigit() and int(choice) < len(locks):
+                    d = locks[int(choice)]
+                    ok = myq.unlock(comm.id, d)  # pass the Device so it routes by family
+                    print(f"  {'unlocked' if ok else 'failed'}: {d.name}")
 
 
 if __name__ == "__main__":

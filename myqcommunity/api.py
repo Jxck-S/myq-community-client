@@ -22,6 +22,13 @@ from .errors import MyQAuthError, MyQRequestError
 from .models import Community, Device, HistoryEvent
 
 
+def _items(data) -> list:
+    """The ``items`` array of a response, which may also be a bare list."""
+    if isinstance(data, list):
+        return data
+    return data.get("items") or []
+
+
 class MyQCommunity:
     def __init__(
         self,
@@ -95,8 +102,7 @@ class MyQCommunity:
             if not self._token.refresh_token:
                 raise MyQAuthError("access token expired and no refresh token available")
             self._token = self._auth.refresh(self._token.refresh_token)
-            if self._on_token_refresh:
-                self._on_token_refresh(self._token)
+            self._persist()
 
     # -- request plumbing -----------------------------------------------------
     def _request(self, method: str, host_key: str, path: str, **kw) -> httpx.Response:
@@ -109,8 +115,7 @@ class MyQCommunity:
         # One retry on 401 (token may have just expired server-side).
         if resp.status_code == 401 and self._token.refresh_token:
             self._token = self._auth.refresh(self._token.refresh_token)
-            if self._on_token_refresh:
-                self._on_token_refresh(self._token)
+            self._persist()
             headers["Authorization"] = f"Bearer {self._token.access_token}"
             resp = self._http.request(method, url, headers=headers, **kw)
 
@@ -126,9 +131,7 @@ class MyQCommunity:
     def communities(self) -> list[Community]:
         """GET /api/v6/communities — the properties this account belongs to."""
         resp = self._request("GET", "facilities", f"{const.API_VERSION}/communities")
-        data = resp.json()
-        items = data.get("items", data if isinstance(data, list) else [])
-        return [Community.from_json(c) for c in items]
+        return [Community.from_json(c) for c in _items(resp.json())]
 
     def devices(self, account_id: str) -> list[Device]:
         """GET /api/v6/communities/{accountId}/devices — doors, locks, panels.
@@ -146,9 +149,9 @@ class MyQCommunity:
                 params=params or None,
             )
             data = resp.json()
-            items = data.get("items", data if isinstance(data, list) else [])
+            items = _items(data)
             out.extend(Device.from_json(d) for d in items)
-            meta = data.get("metadata") or {}
+            meta = (data.get("metadata") if isinstance(data, dict) else None) or {}
             total_pages = meta.get("total_pages")
             if not total_pages or page >= total_pages or not items:
                 break
@@ -236,7 +239,7 @@ class MyQCommunity:
         """Lock a device via the device-action endpoint (``actions/lock``)."""
         return self.device_action(account_id, serial_number, "lock")
 
-    def history(self, account_id: str, limit: int = 100) -> list[HistoryEvent]:
+    def history(self, account_id: str, limit: int | None = 100) -> list[HistoryEvent]:
         """GET /api/v6/communities/{accountId}/history — access/unlock events.
 
         Newest first. Follows the cursor (`continue`) up to ``limit`` events
@@ -255,7 +258,7 @@ class MyQCommunity:
                 params=params,
             )
             data = resp.json()
-            items = data.get("items", []) if isinstance(data, dict) else data
+            items = _items(data)
             out.extend(HistoryEvent.from_json(e) for e in items)
             cursor = data.get("continue") if isinstance(data, dict) else None
             if not cursor or not items or (limit is not None and len(out) >= limit):
