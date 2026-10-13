@@ -38,8 +38,15 @@ _BROWSER_UA = (
 
 
 def _form_action(page: str) -> str | None:
-    m = re.search(r'<form[^>]*action="([^"]+)"[^>]*method="post"', page, re.I)
-    return _html.unescape(m.group(1)) if m else None
+    """``action`` of the first POST form, regardless of attribute order."""
+    for m in re.finditer(r"<form[^>]*>", page, re.I):
+        tag = m.group(0)
+        if not re.search(r'method="post"', tag, re.I):
+            continue
+        a = re.search(r'\baction="([^"]+)"', tag, re.I)
+        if a:
+            return _html.unescape(a.group(1))
+    return None
 
 
 def _hidden_fields(page: str) -> dict:
@@ -142,6 +149,9 @@ class AuthSession:
     def authorize_url(self) -> str:
         verifier, challenge = generate_pkce()
         self._verifier = verifier
+        return self._authorize_url_with(challenge)
+
+    def _authorize_url_with(self, challenge: str) -> str:
         params = {
             "response_type": "code",
             "client_id": const.CLIENT_ID,
@@ -231,9 +241,6 @@ class AuthSession:
         no-MFA path. Returns a :class:`Token` whose ``refresh_token`` can be stored
         for subsequent fully non-interactive use.
         """
-        import re
-        import html as _html
-
         verifier, challenge = generate_pkce()
         self._verifier = verifier
         client = httpx.Client(
@@ -299,19 +306,6 @@ class AuthSession:
             )
         finally:
             client.close()
-
-    def _authorize_url_with(self, challenge: str) -> str:
-        from urllib.parse import urlencode
-        params = {
-            "response_type": "code",
-            "client_id": const.CLIENT_ID,
-            "scope": const.AUTHORIZE_SCOPE,
-            "redirect_uri": const.REDIRECT_URI,
-            "code_challenge": challenge,
-            "code_challenge_method": "S256",
-            "acr_values": const.ACR_VALUES,
-        }
-        return f"{self.identity_host}/connect/authorize?{urlencode(params)}"
 
     def _follow(self, client, url, method="GET", data=None, max_hops=12):
         """Walk a request's redirect chain, stopping at the com.myqops code.
