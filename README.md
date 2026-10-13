@@ -9,9 +9,10 @@
   <img src="https://img.shields.io/badge/status-verified%20live-success.svg" alt="Verified live">
 </p>
 
-A clean, unofficial **Python client for the Chamberlain myQ Community API** —
-log in, list your communities and devices, **unlock doors & gates**, and read
-access history. Fully headless (no browser), with automatic token refresh.
+A reverse-engineered Python client for the Chamberlain **myQ Community** API.
+This client lets you authenticate, list your communities and devices, view access
+history, and remotely **unlock doors and gates** (access points). Fully headless
+(no browser), with automatic token refresh.
 
 For personal interoperability with hardware **you** control.
 
