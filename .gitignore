@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+
+# Secrets / tokens — never commit
+*token*.json
+.myqcommunity_token.json
+pkce.json
+state.json
+capture.log
+
+# The analyzed APK set is not distributed with this client
+apk/
+
+# OS
+.DS_Store
