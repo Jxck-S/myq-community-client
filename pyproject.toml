@@ -18,5 +18,5 @@ dev = ["pytest>=7", "respx>=0.20"]
 packages = ["myqcommunity"]
 
 [project.urls]
-Homepage = "https://github.com/YOUR_USERNAME/myq-community-client"
-Issues = "https://github.com/YOUR_USERNAME/myq-community-client/issues"
+Homepage = "https://github.com/Jxck-S/myq-community-client"
+Issues = "https://github.com/Jxck-S/myq-community-client/issues"
