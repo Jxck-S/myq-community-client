@@ -9,7 +9,7 @@ from .auth import AuthSession, MfaChallenge, PendingMfa, Token, generate_pkce
 from .errors import MyQAuthError, MyQError, MyQOtpError, MyQRequestError
 from .models import Community, Device, HistoryEvent
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 __all__ = [
     "MyQCommunity",

@@ -278,6 +278,17 @@ async def test_refresh_failure_raises_auth_error():
     await c.aclose()
 
 
+@pytest.mark.parametrize("status", [500, 503, 429])
+async def test_token_endpoint_outage_is_not_auth_error(status):
+    c = MyQCommunity(Token(access_token="old", refresh_token="r", expires_at=0))
+    with respx.mock:
+        respx.post(TOKEN_URL).respond(status, text="down")
+        with pytest.raises(MyQRequestError) as e:
+            await c.communities()
+    assert not isinstance(e.value, MyQAuthError) and e.value.status == status
+    await c.aclose()
+
+
 async def test_shared_http_client_not_closed():
     shared = httpx.AsyncClient()
     c = _client(http=shared)
