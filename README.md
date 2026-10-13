@@ -16,6 +16,15 @@ history, and remotely **unlock doors and gates** (access points). Fully headless
 
 For personal interoperability with hardware **you** control.
 
+> ℹ️ **This is for myQ _Community_ — not consumer myQ.**
+> myQ Community is Chamberlain's **access-control platform for apartment
+> communities, multi-tenant buildings, and managed properties** — the app
+> residents use for community gates, lobby/building doors, and access panels.
+> It is **not** the regular **myQ** app for **personal garage door openers or
+> home gates**. If your account is a personal myQ garage/gate opener, this client
+> will **not** work for you — use a consumer-myQ project (e.g. `pymyq`) instead.
+> This client only works with a **myQ Community** account.
+
 > ⚠️ **Disclaimer** — This is an independent, unofficial project. It is **not
 > affiliated with, authorized, or endorsed by Chamberlain Group / myQ**. "myQ" and
 > "myQ Community" are trademarks of their respective owners; the mark in this
