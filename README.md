@@ -13,9 +13,8 @@ A clean, unofficial **Python client for the Chamberlain myQ Community API** —
 log in, list your communities and devices, **unlock doors & gates**, and read
 access history. Fully headless (no browser), with automatic token refresh.
 
-Built in the spirit of projects like
-[butterflymx-client](https://github.com/Jxck-S/butterflymx-client): reverse-engineered
-from the official app for personal interoperability with hardware **you** control.
+Reverse-engineered from the official app for personal interoperability with
+hardware **you** control.
 
 > ⚠️ **Disclaimer** — This is an independent, unofficial project. It is **not
 > affiliated with, authorized, or endorsed by Chamberlain Group / myQ**. "myQ" and
