@@ -109,9 +109,10 @@ myq = MyQCommunity(token, auth=auth, on_token_refresh=save)
 ### Stay logged in (fully headless after the first time)
 
 The first login returns a **refresh token**. Save it and reuse it forever — no
-password or OTP on subsequent runs. **myQ rotates the refresh token on every
-refresh, so you must persist the new one each time** (the client does the
-mechanics; you just supply a save callback, sync or async):
+password or OTP on subsequent runs. **myQ issues a new refresh token on every
+refresh — persist the newest one each time** (the client does the mechanics; you
+just supply a save callback, sync or async). Observed live, the previous token
+keeps working for a while, so a missed save isn't immediately fatal.
 
 ```python
 import json
