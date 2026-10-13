@@ -74,7 +74,7 @@ class MyQCommunity:
 
     @classmethod
     def from_redirect_url(cls, redirect_url: str, verifier: str, auth: AuthSession, **kw) -> "MyQCommunity":
-        """Finish the interactive flow from the captured com.myqops://… URL."""
+        """Finish the interactive flow from the com.myqops://… redirect URL."""
         code = AuthSession.extract_code(redirect_url)
         token = auth.exchange_code(code, verifier)
         client = cls(token, auth=auth, **kw)
@@ -163,9 +163,8 @@ class MyQCommunity:
         """POST /api/v6/communities/{id}/devices/{serial}/actions/{action}.
 
         This is the generic device-action endpoint the app uses to actuate access
-        panels and locks. ``action`` is a ``DeviceActionTypeDto`` name: ``"unlock"``
-        or ``"lock"``. The body is ``{"action": action}`` (Content-Type JSON).
-        Source: ``z7/a.java`` (``e(...)``), ``z7/d.java`` line 49, ``DeviceActionBody``.
+        panels and locks. ``action`` is ``"unlock"`` or ``"lock"``.
+        The body is ``{"action": action}`` (Content-Type JSON).
         """
         resp = self._request(
             "POST",
@@ -176,7 +175,7 @@ class MyQCommunity:
         return 200 <= resp.status_code < 300
 
     def _unlock_panel(self, account_id: str, serial: str) -> bool:
-        """Access-panel / gate open — VERIFIED via live app capture.
+        """Access-panel / gate open.
 
         POST {panels}/api/v6/communities/{id}/doors/{serial}/unlock, empty JSON body.
         """
@@ -198,9 +197,9 @@ class MyQCommunity:
         myQ Community has two unlock mechanisms depending on device family:
 
         * ``access_panel`` (gates/community doors) → ``/doors/{serial}/unlock`` on the
-          **panels** host  (VERIFIED against a live account)
+          **panels** host
         * ``remote_lock`` (smart locks) → ``/devices/{serial}/actions/unlock`` on the
-          **devices** host (from the app's code)
+          **devices** host
 
         When the family is unknown, both are tried in turn, so this works across
         setups without the caller needing to know the device type. Only a

@@ -6,13 +6,11 @@ The app then POSTs that code to ``{identity}/connect/token`` with the PKCE verif
 
 There is **no** password/ROPC grant in the app, so a headless client must either:
 
-* run the interactive flow once and capture the redirect ``code`` (``AuthSession``),
+* run the interactive flow once, read the redirect ``code`` (``AuthSession``),
   then persist the returned ``refresh_token`` and refresh forever; or
-* best-effort drive the IdentityServer login form (``login_with_password``) — this
-  depends on the server's HTML and is marked experimental.
+* drive the login form headlessly with ``login()`` (handles MFA via a callback).
 
-Evidence: see API_REFERENCE.md §Auth. Source classes: ``p316ta/o.java`` (authorize
-URL), ``p360w7/a.java`` (``connect/token`` service), ``AuthRepositoryImpl``.
+See API_REFERENCE.md for the auth flow.
 """
 
 from __future__ import annotations

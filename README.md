@@ -13,8 +13,7 @@ A clean, unofficial **Python client for the Chamberlain myQ Community API** —
 log in, list your communities and devices, **unlock doors & gates**, and read
 access history. Fully headless (no browser), with automatic token refresh.
 
-Reverse-engineered from the official app for personal interoperability with
-hardware **you** control.
+For personal interoperability with hardware **you** control.
 
 > ⚠️ **Disclaimer** — This is an independent, unofficial project. It is **not
 > affiliated with, authorized, or endorsed by Chamberlain Group / myQ**. "myQ" and
@@ -107,8 +106,7 @@ Designed to work beyond a single account:
 
 ## API reference
 
-A full, evidence-cited protocol write-up (endpoints, auth flow, hosts, request /
-response shapes, and how each fact was verified) is in
+Endpoints, auth flow, hosts, and request / response shapes are documented in
 [`API_REFERENCE.md`](API_REFERENCE.md).
 
 ## Development
@@ -120,13 +118,23 @@ python -m pytest tests/        # 17 offline unit tests — no account needed
 Covers PKCE, login-form parsing, MFA detection, model parsing, unlock routing /
 fallback, and history cursor pagination.
 
-## How it was built
-
-Reverse-engineered from the official `com.chamberlain.myq.community` Android app
-(v7.0.6.483631) via static decompilation, and the device-control flow was
-confirmed with a one-off emulator + mitmproxy capture (the app does not pin
-certificates). No myQ source code is included. Details in `API_REFERENCE.md`.
-
 ## License
 
 [MIT](LICENSE). Not affiliated with Chamberlain Group / myQ.
+
+---
+
+## Tested devices & contributing
+
+This client has been **tested live against an `access_panel` gate**
+(`device_type: access_panel_door`) — login, MFA, token refresh, listing, unlock,
+and history all confirmed working on that device.
+
+**Other device types have not been tested yet.** `remote_lock` smart locks and
+any other families are implemented from the known API shape and routed by device
+family, but they haven't been exercised on real hardware.
+
+If something doesn't work for your setup, or you need a fix or a new feature —
+**please open an issue or send a PR.** Helpful details: your device's
+`device_family` / `device_type`, the request path involved, and the HTTP status /
+response body you got (with any tokens or personal info redacted).

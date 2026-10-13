@@ -71,7 +71,7 @@ class Device:
 
 @dataclass
 class HistoryEvent:
-    """One access-history entry (e.g. an unlock). Source: HistoryResponse items."""
+    """One access-history entry (e.g. an unlock)."""
 
     id: str
     event: str            # e.g. "unlocked"
