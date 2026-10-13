@@ -260,9 +260,18 @@ class AuthSession:
             )
         except httpx.HTTPError as e:
             raise MyQRequestError(f"token endpoint unreachable: {e}") from e
-        if resp.status_code != 200:
+        if resp.status_code in (400, 401):
+            # invalid_grant / invalid_client: the code or refresh token is no good.
             raise MyQAuthError(f"token endpoint {resp.status_code}: {resp.text[:500]}")
-        return Token.from_response(resp.json())
+        if resp.status_code != 200:
+            # Outage / rate limit: transient, not a reason to log in again.
+            raise MyQRequestError(
+                f"token endpoint {resp.status_code}", status=resp.status_code, body=resp.text[:500]
+            )
+        try:
+            return Token.from_response(resp.json())
+        except (ValueError, KeyError) as e:
+            raise MyQRequestError(f"unexpected token response: {resp.text[:200]}") from e
 
     # -- headless username/password -------------------------------------------
     async def start_login(self, email: str, password: str) -> Token | PendingMfa:
