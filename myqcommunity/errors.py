@@ -11,6 +11,10 @@ class MyQAuthError(MyQError):
     """Authentication or token-refresh failed."""
 
 
+class MyQOtpError(MyQAuthError):
+    """The one-time (MFA) code was rejected; the pending login can be retried."""
+
+
 class MyQRequestError(MyQError):
     """An API request returned an error status."""
 

@@ -8,7 +8,11 @@ There is **no** password/ROPC grant in the app, so a headless client must either
 
 * run the interactive flow once, read the redirect ``code`` (``AuthSession``),
   then persist the returned ``refresh_token`` and refresh forever; or
-* drive the login form headlessly with ``login()`` (handles MFA via a callback).
+* drive the login form headlessly: ``start_login()`` / ``finish_login()`` (two
+  calls, so the one-time code can be collected in between, e.g. by a UI), or
+  ``login()`` which combines them with an OTP callback.
+
+All network methods are async (``httpx.AsyncClient``).
 
 See API_REFERENCE.md for the auth flow.
 """
@@ -18,17 +22,18 @@ from __future__ import annotations
 import base64
 import hashlib
 import html as _html
+import inspect
 import os
 import re
 import time
-from dataclasses import dataclass
-from typing import Callable
+from dataclasses import asdict, dataclass, field
+from typing import Awaitable, Callable
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 
 from . import const
-from .errors import MyQAuthError
+from .errors import MyQAuthError, MyQOtpError, MyQRequestError
 
 # A browser-like UA; the IdentityServer login pages are server-rendered HTML.
 _BROWSER_UA = (
@@ -134,13 +139,53 @@ class Token:
             token_type=data.get("token_type", "Bearer"),
         )
 
+    def to_dict(self) -> dict:
+        """JSON-serialisable form, for persisting between runs."""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Token":
+        return cls(
+            access_token=data.get("access_token", ""),
+            refresh_token=data.get("refresh_token"),
+            expires_at=float(data.get("expires_at", 0)),
+            token_type=data.get("token_type", "Bearer"),
+        )
+
+
+@dataclass
+class PendingMfa:
+    """A login paused at the one-time-code step.
+
+    Returned by :meth:`AuthSession.start_login` when the account requires MFA;
+    pass it to :meth:`AuthSession.finish_login` with the code. It holds the
+    login's own HTTP client (cookies) and the exact OTP form that was rendered
+    when the code was sent, so it can be kept across separate calls (e.g. the
+    steps of a Home Assistant config flow). Call :meth:`aclose` if abandoned.
+    """
+
+    challenge: MfaChallenge
+    _client: httpx.AsyncClient = field(repr=False)
+    _verifier: str = field(repr=False)
+    _otp_page: str = field(repr=False)
+    _otp_url: str = field(repr=False)
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
 
 class AuthSession:
-    """Drives the PKCE authorize + token exchange against id.myq.com."""
+    """Drives the PKCE authorize + token exchange against id.myq.com.
 
-    def __init__(self, *, identity_host: str = const.IDENTITY_HOST, http: httpx.Client | None = None):
+    ``http`` is used for token-endpoint calls and may be a shared client (it is
+    not closed by :meth:`aclose`). Headless login always uses its own
+    short-lived client so its cookies are never shared.
+    """
+
+    def __init__(self, *, identity_host: str = const.IDENTITY_HOST, http: httpx.AsyncClient | None = None):
         self.identity_host = identity_host.rstrip("/")
-        self._http = http or httpx.Client(
+        self._owns_http = http is None
+        self._http = http or httpx.AsyncClient(
             timeout=30.0, headers={"User-Agent": const.USER_AGENT}, follow_redirects=False
         )
         self._verifier: str | None = None
@@ -175,11 +220,11 @@ class AuthSession:
         return code
 
     # -- step 2b: exchange the code (+ PKCE verifier) for tokens ---------------
-    def exchange_code(self, code: str, verifier: str | None = None) -> Token:
+    async def exchange_code(self, code: str, verifier: str | None = None) -> Token:
         verifier = verifier or self._verifier
         if not verifier:
             raise MyQAuthError("PKCE verifier missing; call authorize_url() first or pass verifier=")
-        return self._token_request(
+        return await self._token_request(
             {
                 "response_type": "code",
                 "scope": const.TOKEN_SCOPE,
@@ -191,8 +236,8 @@ class AuthSession:
             }
         )
 
-    def refresh(self, refresh_token: str) -> Token:
-        tok = self._token_request(
+    async def refresh(self, refresh_token: str) -> Token:
+        tok = await self._token_request(
             {
                 "client_id": const.CLIENT_ID,
                 "grant_type": "refresh_token",
@@ -206,51 +251,39 @@ class AuthSession:
             tok.refresh_token = refresh_token
         return tok
 
-    def _token_request(self, form: dict) -> Token:
-        resp = self._http.post(
-            f"{self.identity_host}/connect/token",
-            data=form,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-        )
+    async def _token_request(self, form: dict) -> Token:
+        try:
+            resp = await self._http.post(
+                f"{self.identity_host}/connect/token",
+                data=form,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+        except httpx.HTTPError as e:
+            raise MyQRequestError(f"token endpoint unreachable: {e}") from e
         if resp.status_code != 200:
             raise MyQAuthError(f"token endpoint {resp.status_code}: {resp.text[:500]}")
         return Token.from_response(resp.json())
 
-    # -- experimental: headless username/password -----------------------------
-    def login(
-        self,
-        email: str,
-        password: str,
-        otp_callback: "Callable[[MfaChallenge], str] | None" = None,
-        max_otp_attempts: int = 3,
-    ) -> Token:
-        """Fully headless login against the IdentityServer web flow.
+    # -- headless username/password -------------------------------------------
+    async def start_login(self, email: str, password: str) -> Token | PendingMfa:
+        """Submit email/password to the IdentityServer web login.
 
         This mirrors what the hosted login does: GET /connect/authorize ->
         server-rendered login form (Email/Password/__RequestVerificationToken) ->
-        POST credentials. The account then either (a) redirects straight to
-        ``com.myqops://mobile?code=...`` (no MFA), or (b) lands on an OTP page.
-
-        For MFA, ``otp_callback`` is called with an :class:`MfaChallenge` (it has
-        ``.masked_phone`` / ``.masked_email`` / ``.method``) and must return the
-        code the user received. It is re-invoked on an incorrect code, up to
-        ``max_otp_attempts``. If MFA is required and no callback is given, an
-        :class:`MyQAuthError` is raised.
-
-        Verified against a live MFA-enabled account; validated to also handle the
-        no-MFA path. Returns a :class:`Token` whose ``refresh_token`` can be stored
-        for subsequent fully non-interactive use.
+        POST credentials. Returns a :class:`Token` when the account has no MFA,
+        otherwise a :class:`PendingMfa` (a code has just been sent) to complete
+        with :meth:`finish_login`.
         """
         verifier, challenge = generate_pkce()
-        self._verifier = verifier
-        client = httpx.Client(
+        client = httpx.AsyncClient(
             timeout=30.0, headers={"User-Agent": _BROWSER_UA}, follow_redirects=False
         )
         try:
             # 1. Authorize -> follow to either the login page or straight to a code.
-            resp, code = self._follow(client, self._authorize_url_with(challenge))
+            resp, code = await self._follow(client, self._authorize_url_with(challenge))
             if code:
-                return self.exchange_code(code, verifier)
+                await client.aclose()
+                return await self.exchange_code(code, verifier)
             page = resp.text
             action = _form_action(page)
             if not action or "Password" not in page:
@@ -262,11 +295,12 @@ class AuthSession:
             fields["Email"] = email
             fields["Password"] = password
             # 2. Submit credentials.
-            resp, code = self._follow(
+            resp, code = await self._follow(
                 client, str(resp.url.join(action)), method="POST", data=fields
             )
             if code:
-                return self.exchange_code(code, verifier)
+                await client.aclose()
+                return await self.exchange_code(code, verifier)
 
             # 3. MFA step?
             if "VerifyOtp" not in str(resp.url) and "Otp" not in resp.text:
@@ -278,55 +312,106 @@ class AuthSession:
                     "login failed (no code, no MFA page). Check credentials. "
                     "Hints: %s" % (snippet[:2] or "none")
                 )
+            # Keep the EXACT form rendered when the code was sent; do not re-GET
+            # (that rotates the expected code).
+            return PendingMfa(
+                challenge=MfaChallenge.from_page(resp.text),
+                _client=client,
+                _verifier=verifier,
+                _otp_page=resp.text,
+                _otp_url=str(resp.url.join(_form_action(resp.text) or str(resp.url))),
+            )
+        except BaseException:
+            await client.aclose()
+            raise
+
+    async def finish_login(self, pending: PendingMfa, code: str) -> Token:
+        """Submit the one-time code for a :class:`PendingMfa`.
+
+        Raises :class:`MyQOtpError` if the code is rejected; ``pending`` is then
+        updated from the re-rendered form and can be retried with a new code.
+        On success the pending login's HTTP client is closed.
+        """
+        fields = _hidden_fields(pending._otp_page)
+        fields[pending.challenge.otp_field] = (code or "").strip()
+        try:
+            resp, auth_code = await self._follow(
+                pending._client, pending._otp_url, method="POST", data=fields
+            )
+        except BaseException:
+            await pending.aclose()
+            raise
+        if auth_code:
+            await pending.aclose()
+            return await self.exchange_code(auth_code, pending._verifier)
+        # Incorrect/expired: reuse the returned page for the next attempt.
+        pending._otp_page = resp.text
+        pending._otp_url = str(resp.url.join(_form_action(resp.text) or pending._otp_url))
+        pending.challenge = MfaChallenge.from_page(resp.text)
+        raise MyQOtpError("one-time code was rejected")
+
+    async def login(
+        self,
+        email: str,
+        password: str,
+        otp_callback: "Callable[[MfaChallenge], str | Awaitable[str]] | None" = None,
+        max_otp_attempts: int = 3,
+    ) -> Token:
+        """One-call headless login: :meth:`start_login` + :meth:`finish_login`.
+
+        For MFA, ``otp_callback`` (sync or async) is called with an
+        :class:`MfaChallenge` (``.masked_phone`` / ``.masked_email`` /
+        ``.method``) and must return the code the user received. It is
+        re-invoked on an incorrect code, up to ``max_otp_attempts``. If MFA is
+        required and no callback is given, an :class:`MyQAuthError` is raised.
+        """
+        result = await self.start_login(email, password)
+        if isinstance(result, Token):
+            return result
+        pending = result
+        try:
             if otp_callback is None:
                 raise MyQAuthError(
                     "account requires a one-time code but no otp_callback was provided."
                 )
-
-            challenge_obj = MfaChallenge.from_page(resp.text)
-            # Use the EXACT form rendered when the code was sent; do not re-GET
-            # (that rotates the expected code).
-            otp_page = resp.text
-            otp_url = str(resp.url.join(_form_action(otp_page) or str(resp.url)))
-            for attempt in range(max_otp_attempts):
-                otp = (otp_callback(challenge_obj) or "").strip()
-                otp_fields = _hidden_fields(otp_page)
-                otp_fields[challenge_obj.otp_field] = otp
-                resp, code = self._follow(
-                    client, otp_url, method="POST", data=otp_fields
-                )
-                if code:
-                    return self.exchange_code(code, verifier)
-                # Incorrect/expired: reuse the returned page for the next attempt.
-                otp_page = resp.text
-                otp_url = str(resp.url.join(_form_action(otp_page) or otp_url))
-                challenge_obj = MfaChallenge.from_page(otp_page)
-            raise MyQAuthError(
+            for _ in range(max_otp_attempts):
+                code = otp_callback(pending.challenge)
+                if inspect.isawaitable(code):
+                    code = await code
+                try:
+                    return await self.finish_login(pending, code)
+                except MyQOtpError:
+                    continue
+            raise MyQOtpError(
                 "one-time code rejected after %d attempt(s)." % max_otp_attempts
             )
         finally:
-            client.close()
+            await pending.aclose()
 
-    def _follow(self, client, url, method="GET", data=None, max_hops=12):
+    async def _follow(self, client, url, method="GET", data=None, max_hops=12):
         """Walk a request's redirect chain, stopping at the com.myqops code.
 
         Returns ``(last_response, code_or_None)``. The code is read from the
         ``Location`` header the moment a hop points at the app's URL scheme, so
         the browser-only ``com.myqops://`` dead end never happens.
         """
-        resp = client.request(method, url, data=data)
-        for _ in range(max_hops):
-            loc = resp.headers.get("location", "")
-            if loc.startswith(const.REDIRECT_URI):
-                return resp, self.extract_code(loc)
-            if resp.status_code not in (301, 302, 303, 307, 308) or not loc:
-                return resp, None
-            nxt = loc if loc.startswith("http") else str(resp.url.join(loc))
-            resp = client.get(nxt)
+        try:
+            resp = await client.request(method, url, data=data)
+            for _ in range(max_hops):
+                loc = resp.headers.get("location", "")
+                if loc.startswith(const.REDIRECT_URI):
+                    return resp, self.extract_code(loc)
+                if resp.status_code not in (301, 302, 303, 307, 308) or not loc:
+                    return resp, None
+                nxt = loc if loc.startswith("http") else str(resp.url.join(loc))
+                resp = await client.get(nxt)
+        except httpx.HTTPError as e:
+            raise MyQRequestError(f"login request failed: {e}") from e
         return resp, None
 
     # Back-compat alias.
     login_with_password = login
 
-    def close(self) -> None:
-        self._http.close()
+    async def aclose(self) -> None:
+        if self._owns_http:
+            await self._http.aclose()

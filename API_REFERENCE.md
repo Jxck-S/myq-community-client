@@ -64,8 +64,9 @@ POST https://id.myq.com/connect/token
 client_id=<client_id>&grant_type=refresh_token&scope=MyQ_Community offline_access&refresh_token=<RT>
 ```
 
-> The refresh token is **rotated on every refresh** — persist the new one each
-> time or the next refresh fails. (Revocation: `POST /connect/revocation`.)
+> A new refresh token is issued on every refresh — persist the newest one. The
+> previous token was observed to remain valid (no strict one-time use), but
+> don't rely on it. (Revocation: `POST /connect/revocation`.)
 
 ## Authenticated REST requests
 

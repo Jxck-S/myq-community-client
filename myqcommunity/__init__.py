@@ -5,16 +5,17 @@ endorsed by Chamberlain Group.
 """
 
 from .api import MyQCommunity
-from .auth import AuthSession, MfaChallenge, Token, generate_pkce
-from .errors import MyQAuthError, MyQError, MyQRequestError
+from .auth import AuthSession, MfaChallenge, PendingMfa, Token, generate_pkce
+from .errors import MyQAuthError, MyQError, MyQOtpError, MyQRequestError
 from .models import Community, Device, HistoryEvent
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "MyQCommunity",
     "AuthSession",
     "MfaChallenge",
+    "PendingMfa",
     "Token",
     "generate_pkce",
     "Community",
@@ -22,5 +23,6 @@ __all__ = [
     "HistoryEvent",
     "MyQError",
     "MyQAuthError",
+    "MyQOtpError",
     "MyQRequestError",
 ]
