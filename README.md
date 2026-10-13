@@ -3,9 +3,9 @@
 </p>
 
 <p align="center">
-  <a href="#installation"><img src="https://img.shields.io/badge/python-3.9%2B-blue.svg" alt="Python 3.9+"></a>
+  <a href="#installation"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+"></a>
   <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="MIT License">
-  <img src="https://img.shields.io/badge/tests-21%20passing-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-29%20passing-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/status-verified%20live-success.svg" alt="Verified live">
 </p>
 
@@ -56,25 +56,54 @@ pip install -e .          # from a clone; the only dependency is httpx
 
 myQ Community uses **OAuth2 (Authorization Code + PKCE)** with mandatory MFA on
 most accounts. This client drives the whole login in Python and handles the
-one-time code via a callback — **no browser needed**.
+one-time code via a callback — **no browser needed**. The client is **async**
+(`httpx.AsyncClient`).
 
 ```python
+import asyncio
 from myqcommunity import MyQCommunity
 
-def get_code(challenge):
+def get_code(challenge):  # may also be an async function
     # challenge.method is "sms" or "email"; .masked_phone / .masked_email say where
     return input(f"Enter the code sent to {challenge.masked_phone or challenge.masked_email}: ")
 
-myq = MyQCommunity.login("you@example.com", "password", otp_callback=get_code)
+async def main():
+    myq = await MyQCommunity.login("you@example.com", "password", otp_callback=get_code)
+    async with myq:
+        for community in await myq.communities():
+            print(community.name, community.id)
+            for lock in await myq.locks(community.id):
+                print("  ", lock.name, lock.serial_number, "online:", lock.online)
+                await myq.unlock(community.id, lock)          # 🔓 open it
 
-for community in myq.communities():
-    print(community.name, community.id)
-    for lock in myq.locks(community.id):
-        print("  ", lock.name, lock.serial_number, "online:", lock.online)
-        myq.unlock(community.id, lock)          # 🔓 open it
+            for ev in await myq.history(community.id, limit=20):
+                print(ev.timestamp, ev.event, ev.device_name)
 
-    for ev in myq.history(community.id, limit=20):
-        print(ev.timestamp, ev.event, ev.device_name)
+asyncio.run(main())
+```
+
+### Two-step login (UIs, Home Assistant)
+
+When the code is collected in a separate step — a web form, a Home Assistant
+config flow — split the login in two. `PendingMfa` holds the in-progress login
+(cookies, the OTP form) between the calls:
+
+```python
+from myqcommunity import AuthSession, MyQCommunity, MyQOtpError, Token
+
+auth = AuthSession()
+result = await auth.start_login(email, password)   # Token (no MFA) or PendingMfa
+if isinstance(result, Token):
+    token = result
+else:
+    print("code sent to", result.challenge.masked_phone)
+    try:
+        token = await auth.finish_login(result, code)   # retryable on MyQOtpError
+    except MyQOtpError:
+        ...  # ask again and call finish_login(result, new_code)
+# abandoned? -> await result.aclose()
+
+myq = MyQCommunity(token, auth=auth, on_token_refresh=save)
 ```
 
 ### Stay logged in (fully headless after the first time)
@@ -82,23 +111,27 @@ for community in myq.communities():
 The first login returns a **refresh token**. Save it and reuse it forever — no
 password or OTP on subsequent runs. **myQ rotates the refresh token on every
 refresh, so you must persist the new one each time** (the client does the
-mechanics; you just supply a save callback):
+mechanics; you just supply a save callback, sync or async):
 
 ```python
 import json
-from myqcommunity import MyQCommunity
+from myqcommunity import MyQCommunity, Token
 
-def save(tok):
-    json.dump({"refresh_token": tok.refresh_token}, open("token.json", "w"))
+def save(tok: Token):
+    with open("token.json", "w") as f:
+        json.dump(tok.to_dict(), f)
 
 # later runs:
-rt = json.load(open("token.json"))["refresh_token"]
-myq = MyQCommunity.from_refresh_token(rt, on_token_refresh=save)
+with open("token.json") as f:
+    rt = Token.from_dict(json.load(f)).refresh_token
+myq = await MyQCommunity.from_refresh_token(rt, on_token_refresh=save)
 ```
 
-The client auto-refreshes before expiry and on a `401`. See
-[`examples/login_and_unlock.py`](examples/login_and_unlock.py) for a complete CLI
-that stores the token in `~/.myqcommunity_token.json`.
+The client auto-refreshes before expiry and on a `401`; concurrent requests
+share a single refresh, so a rotated token is never used twice. Pass
+`http=<httpx.AsyncClient>` to reuse an existing client (it won't be closed).
+See [`examples/login_and_unlock.py`](examples/login_and_unlock.py) for a
+complete CLI that stores the token in `~/.myqcommunity_token.json`.
 
 ## Compatibility with other myQ Community setups
 
@@ -122,11 +155,13 @@ Endpoints, auth flow, hosts, and request / response shapes are documented in
 ## Development
 
 ```bash
-python -m pytest tests/        # 21 offline unit tests — no account needed
+pip install -e '.[dev]'
+python -m pytest tests/        # 29 offline unit tests — no account needed
 ```
 
-Covers PKCE, login-form parsing, MFA detection, model parsing, unlock routing /
-fallback, and history cursor pagination.
+Covers PKCE, login-form parsing, MFA detection, the two-step login against a
+mocked IdentityServer, token refresh / rotation / concurrency, model parsing,
+unlock routing / fallback, and device / history pagination.
 
 ## License
 

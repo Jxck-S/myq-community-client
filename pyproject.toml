@@ -4,18 +4,21 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "myq-community-client"
-version = "0.1.0"
+version = "0.2.0"
 description = "Unofficial Python client for the Chamberlain myQ Community API (door/gate unlocks)"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = ["httpx>=0.24"]
 
 [project.optional-dependencies]
-dev = ["pytest>=7", "respx>=0.20"]
+dev = ["pytest>=7", "pytest-asyncio>=0.23", "respx>=0.20"]
 
 [tool.setuptools]
 packages = ["myqcommunity"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
 
 [project.urls]
 Homepage = "https://github.com/Jxck-S/myq-community-client"
